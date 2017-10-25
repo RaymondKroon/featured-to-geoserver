@@ -73,13 +73,13 @@
   (apply (partial merge-with merge) maps))
 
 (defn run-client []
-  (log/info "TEST")
   (let [client (doto (TaskClient.)
                  (.setRootURI (env :conductor-api-root)))
-        coordinator (.build (doto (WorkflowTaskCoordinator$Builder.)
-                              (.withWorkers [(Loader. "featured_to_geoserver")])
-                              (.withThreadCount (env :thread-count 1))
-                              (.withTaskClient client)))]
+        coordinator (.build (-> (WorkflowTaskCoordinator$Builder.)
+                                (.withWorkers [(Loader. "featured_to_geoserver")])
+                                (.withThreadCount (Integer/parseInt (env :thread-count "1")))
+                                (.withWorkerQueueSize (* 5 (Integer/parseInt (env :thread-count "1"))))
+                                (.withTaskClient client)))]
     (.init coordinator)))
 
 (defn -main [& args]
