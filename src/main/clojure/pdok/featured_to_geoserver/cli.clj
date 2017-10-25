@@ -3,9 +3,16 @@
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [clojure.tools.cli :as cli]
-            [pdok.featured-to-geoserver.util :refer :all]
-            [pdok.featured-to-geoserver.core :as core])
-  (:gen-class))
+            [environ.core :refer [env]]
+            [pdok.featured-to-geoserver
+             [util :refer :all]
+             [config :as config]
+             [core :as core]
+             [workers :as workers]])
+  (:gen-class)
+  (:import (com.netflix.conductor.client.http TaskClient)
+           (com.netflix.conductor.client.task WorkflowTaskCoordinator$Builder)
+           (pdok.featured_to_geoserver.workers Loader)))
 
 (defn- parse-collection-field [x]
   (str/split x #"/"))
@@ -21,7 +28,8 @@
       #(conj (or % []) field))))
 
 (def cli-options
-  [["-f" "--format  FORMAT" "File format (zip or plain)"
+  [[nil "--conductor-client"]
+   ["-f" "--format  FORMAT" "File format (zip or plain)"
     :default "zip"
     :validate [#(some (partial = %) ["zip" "plain"]) "File format must be zip or plain"]]
    [nil "--db-host HOST" "Database host"
@@ -64,6 +72,16 @@
 (defn- merge-mapping [& maps]
   (apply (partial merge-with merge) maps))
 
+(defn run-client []
+  (log/info "TEST")
+  (let [client (doto (TaskClient.)
+                 (.setRootURI (env :conductor-api-root)))
+        coordinator (.build (doto (WorkflowTaskCoordinator$Builder.)
+                              (.withWorkers [(Loader. "featured_to_geoserver")])
+                              (.withThreadCount (env :thread-count 1))
+                              (.withTaskClient client)))]
+    (.init coordinator)))
+
 (defn -main [& args]
   (log/info "This is the featured-to-geoserver CLI version" (implementation-version))
   (let [{[dataset & files] :arguments summary :summary options :options errors :errors} (cli/parse-opts args cli-options)
@@ -77,6 +95,7 @@
          unnest :unnest
          exclude-filter :exclude-filter} options]
     (cond
+      (:conductor-client options) (run-client)
       errors (do (log-usage summary) (doseq [error errors] (log/error error)))
       (empty? files) (log-usage summary)
       :else (let [db {:url (str "//" host ":" port "/" database)
